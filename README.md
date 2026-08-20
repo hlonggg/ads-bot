@@ -16,6 +16,21 @@ Stack: Next.js 14 (App Router) · Prisma + PostgreSQL · Telegraf (webhook mode)
 - **Rút tiền trừ balance ngay khi tạo lệnh** (chuyển sang `pendingBalance`), tránh việc user bấm
   rút 2 lần cùng lúc rút được gấp đôi số dư trước khi admin kịp duyệt lệnh đầu.
 
+## Cấu hình Postback trong Monetag SSP (bắt buộc, quyết định việc cộng tiền có đúng hay không)
+
+Vào SSP dashboard → chọn zone → mục Postbacks → ô **"Your backend URL"** (đúng màn hình bạn thấy khi
+bấm "+"), dán **nguyên văn** dòng sau (không sửa phần trong dấu `{}`, Monetag tự thay bằng giá trị thật):
+
+```
+https://<APP_URL>/api/postback/monetag?ymid={ymid}&event_type={event_type}&reward_event_type={reward_event_type}&estimated_price={estimated_price}&secret=<POSTBACK_SECRET_của_bạn>
+```
+
+Thay `<APP_URL>` bằng domain Railway thật, `<POSTBACK_SECRET_của_bạn>` bằng đúng giá trị bạn đặt ở biến `POSTBACK_SECRET`.
+
+Hệ thống chỉ cộng tiền khi **`reward_event_type=valued`** (Monetag xác nhận sự kiện đã được tính
+tiền) **và** `event_type=impression` (không cộng khi chỉ là `click`, tránh cộng đúp cho 1 lượt xem).
+Nếu `reward_event_type=not_valued` (bị lọc do spam/gian lận), hệ thống tự đánh dấu REJECTED — không cộng.
+
 ## Cơ chế CPM tự động (Monetag)
 
 - **Monetag dùng 1 main zone duy nhất cho toàn app** (đúng theo tài liệu chính thức — sub-zone chỉ
