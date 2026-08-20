@@ -1,0 +1,217 @@
+"use client";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import PanelGuard from "@/components/PanelGuard";
+
+interface Task {
+  id: string;
+  name: string;
+  reward: number;
+  adNetwork: string;
+  isActive: boolean;
+  dynamicPricing: boolean;
+  lastCpmUsd: number | null;
+  lastCpmSyncAt: string | null;
+}
+
+export default function PanelTasksPage() {
+  const router = useRouter();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [name, setName] = useState("");
+  const [reward, setReward] = useState("");
+  const [adNetwork, setAdNetwork] = useState("monetag");
+  const [adScript, setAdScript] = useState("");
+  const [zoneId, setZoneId] = useState("");
+  const [cooldownSec, setCooldownSec] = useState("0");
+  const [dailyLimit, setDailyLimit] = useState("");
+  const [dynamicPricing, setDynamicPricing] = useState(false);
+  const [marginPercent, setMarginPercent] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  function loadTasks(initData: string) {
+    fetch(`/api/panel/tasks?initData=${encodeURIComponent(initData)}`)
+      .then((r) => r.json())
+      .then((d) => setTasks(d.tasks || []));
+  }
+
+  async function createTask(initData: string) {
+    if (!name) return;
+    if (adNetwork !== "monetag" && !adScript) return; // monetag uses global SDK, no per-task script needed
+    if (!dynamicPricing && !reward) return;
+    setCreating(true);
+    const res = await fetch("/api/panel/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        initData,
+        name,
+        reward,
+        adScript: adNetwork === "monetag" ? "" : adScript,
+        adNetwork,
+        cooldownSec,
+        dailyLimit: dailyLimit || null,
+        dynamicPricing,
+        marginPercent: marginPercent || null,
+      }),
+    });
+    setCreating(false);
+    if (res.ok) {
+      setName("");
+      setReward("");
+      setAdScript("");
+      setCooldownSec("0");
+      setDailyLimit("");
+      setDynamicPricing(false);
+      setMarginPercent("");
+      loadTasks(initData);
+    }
+  }
+
+  async function toggleTask(initData: string, id: string) {
+    await fetch(`/api/panel/tasks/${id}/toggle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData }),
+    });
+    loadTasks(initData);
+  }
+
+  return (
+    <PanelGuard>
+      {(initData) => (
+        <TasksInner
+          initData={initData}
+          tasks={tasks}
+          loadTasks={loadTasks}
+          name={name}
+          setName={setName}
+          reward={reward}
+          setReward={setReward}
+          adNetwork={adNetwork}
+          setAdNetwork={setAdNetwork}
+          adScript={adScript}
+          setAdScript={setAdScript}
+          zoneId={zoneId}
+          setZoneId={setZoneId}
+          cooldownSec={cooldownSec}
+          setCooldownSec={setCooldownSec}
+          dailyLimit={dailyLimit}
+          setDailyLimit={setDailyLimit}
+          dynamicPricing={dynamicPricing}
+          setDynamicPricing={setDynamicPricing}
+          marginPercent={marginPercent}
+          setMarginPercent={setMarginPercent}
+          creating={creating}
+          createTask={createTask}
+          toggleTask={toggleTask}
+          router={router}
+        />
+      )}
+    </PanelGuard>
+  );
+}
+
+function TasksInner(props: any) {
+  const {
+    initData, tasks, loadTasks, name, setName, reward, setReward,
+    adNetwork, setAdNetwork, adScript, setAdScript, zoneId, setZoneId,
+    cooldownSec, setCooldownSec, dailyLimit, setDailyLimit,
+    dynamicPricing, setDynamicPricing, marginPercent, setMarginPercent,
+    creating, createTask, toggleTask, router,
+  } = props;
+
+  useEffect(() => {
+    loadTasks(initData);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initData]);
+
+  return (
+    <main className="px-4 pt-6 pb-10 max-w-md mx-auto">
+      <button onClick={() => router.back()} className="text-gray-400 text-sm mb-4">
+        ← Quay lại
+      </button>
+      <h1 className="font-display text-2xl font-semibold gold-text mb-4">Nhiệm vụ</h1>
+
+      <div className="card p-5 flex flex-col gap-3 mb-6">
+        <p className="text-sm font-semibold text-charcoal mb-1">Tạo nhiệm vụ mới</p>
+        <input value={name} onChange={(e: any) => setName(e.target.value)} placeholder="Tên nhiệm vụ"
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+        <select value={adNetwork} onChange={(e: any) => setAdNetwork(e.target.value)}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm">
+          <option value="monetag">Monetag</option>
+          <option value="adsterra">Adsterra</option>
+          <option value="custom">Khác</option>
+        </select>
+
+        {adNetwork === "monetag" ? (
+          <p className="text-xs text-gray-400 bg-ivory rounded-xl px-3 py-2">
+            Monetag dùng chung 1 zone cấu hình ở "Cài đặt &amp; Hướng dẫn" — không cần Zone ID/script riêng cho từng nhiệm vụ.
+          </p>
+        ) : (
+          <>
+            <input value={zoneId} onChange={(e: any) => setZoneId(e.target.value)} placeholder="Zone ID (nếu có)"
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+            <textarea value={adScript} onChange={(e: any) => setAdScript(e.target.value)} rows={4}
+              placeholder="Dán script bên thứ 3 vào đây"
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm font-mono" />
+          </>
+        )}
+
+        {adNetwork === "monetag" && (
+          <label className="flex items-center gap-2 text-sm text-charcoal bg-ivory rounded-xl px-3 py-2">
+            <input type="checkbox" checked={dynamicPricing} onChange={(e: any) => setDynamicPricing(e.target.checked)} />
+            Tự động tính giá theo CPM (cập nhật mỗi 5 phút)
+          </label>
+        )}
+
+        {dynamicPricing ? (
+          <input value={marginPercent} onChange={(e: any) => setMarginPercent(e.target.value)} type="number"
+            placeholder="Tỷ lệ trả user (%) — để trống dùng mặc định hệ thống"
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+        ) : (
+          <input value={reward} onChange={(e: any) => setReward(e.target.value)} type="number" placeholder="Số tiền nhận được"
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+        )}
+
+        <div className="flex gap-2">
+          <input value={cooldownSec} onChange={(e: any) => setCooldownSec(e.target.value)} type="number"
+            placeholder="Cooldown (giây)" className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+          <input value={dailyLimit} onChange={(e: any) => setDailyLimit(e.target.value)} type="number"
+            placeholder="Giới hạn/ngày" className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+        </div>
+        <button onClick={() => createTask(initData)} disabled={creating} className="btn-gold py-3 text-sm mt-1">
+          {creating ? "Đang tạo..." : "Tạo nhiệm vụ"}
+        </button>
+      </div>
+
+      <p className="text-sm font-semibold text-charcoal mb-3">Danh sách nhiệm vụ</p>
+      <div className="flex flex-col gap-3">
+        {tasks.map((t: Task) => (
+          <div key={t.id} className="card p-4 flex items-center justify-between">
+            <div>
+              <p className="font-medium text-charcoal">{t.name}</p>
+              <p className="text-xs text-gray-400">
+                +{t.reward.toLocaleString("vi-VN")}đ · {t.adNetwork}
+                {t.dynamicPricing && " · CPM tự động"}
+              </p>
+              {t.dynamicPricing && (
+                <p className="text-[11px] text-gray-400">
+                  {t.lastCpmUsd != null ? `CPM $${t.lastCpmUsd.toFixed(2)}` : "Chưa đồng bộ CPM"}
+                  {t.lastCpmSyncAt && ` · ${new Date(t.lastCpmSyncAt).toLocaleTimeString("vi-VN")}`}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => toggleTask(initData, t.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold ${
+                t.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+              }`}
+            >
+              {t.isActive ? "Đang bật" : "Đã tắt"}
+            </button>
+          </div>
+        ))}
+      </div>
+    </main>
+  );
+}

@@ -1,0 +1,47 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { verifyAdminInitData } from "@/lib/panelAuth";
+
+export async function GET(req: NextRequest) {
+  const initData = req.nextUrl.searchParams.get("initData") || "";
+  const admin = verifyAdminInitData(initData);
+  if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const tasks = await prisma.task.findMany({ orderBy: { createdAt: "desc" } });
+  return NextResponse.json({ tasks });
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}));
+  const admin = verifyAdminInitData(body.initData);
+  if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const { name, reward, adScript, adNetwork, zoneId, cooldownSec, dailyLimit, dynamicPricing, marginPercent } = body;
+  const network = adNetwork || "custom";
+
+  if (!name) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
+  // Monetag uses the global zone script configured in Settings — no per-task
+  // script/zoneId required. Other networks must supply their own embed script.
+  if (network !== "monetag" && !adScript) {
+    return NextResponse.json({ error: "adscript_required_for_non_monetag" }, { status: 400 });
+  }
+  if (!dynamicPricing && !reward) {
+    return NextResponse.json({ error: "reward_required_when_not_dynamic" }, { status: 400 });
+  }
+
+  const task = await prisma.task.create({
+    data: {
+      name,
+      reward: dynamicPricing ? 0 : Number(reward), // 0 until first cron sync fills it in
+      adScript: network === "monetag" ? "" : adScript,
+      adNetwork: network,
+      zoneId: network === "monetag" ? null : zoneId || null,
+      cooldownSec: Number(cooldownSec) || 0,
+      dailyLimit: dailyLimit ? Number(dailyLimit) : null,
+      dynamicPricing: !!dynamicPricing,
+      marginPercent: marginPercent ? Number(marginPercent) : null,
+    },
+  });
+
+  return NextResponse.json({ ok: true, task });
+}
