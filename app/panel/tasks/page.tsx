@@ -9,9 +9,7 @@ interface Task {
   reward: number;
   adNetwork: string;
   isActive: boolean;
-  dynamicPricing: boolean;
-  lastCpmUsd: number | null;
-  lastCpmSyncAt: string | null;
+  marginPercent: number | null;
 }
 
 export default function PanelTasksPage() {
@@ -24,7 +22,6 @@ export default function PanelTasksPage() {
   const [zoneId, setZoneId] = useState("");
   const [cooldownSec, setCooldownSec] = useState("0");
   const [dailyLimit, setDailyLimit] = useState("");
-  const [dynamicPricing, setDynamicPricing] = useState(false);
   const [marginPercent, setMarginPercent] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -35,9 +32,8 @@ export default function PanelTasksPage() {
   }
 
   async function createTask(initData: string) {
-    if (!name) return;
+    if (!name || !reward) return;
     if (adNetwork !== "monetag" && !adScript) return; // monetag uses global SDK, no per-task script needed
-    if (!dynamicPricing && !reward) return;
     setCreating(true);
     const res = await fetch("/api/panel/tasks", {
       method: "POST",
@@ -50,7 +46,6 @@ export default function PanelTasksPage() {
         adNetwork,
         cooldownSec,
         dailyLimit: dailyLimit || null,
-        dynamicPricing,
         marginPercent: marginPercent || null,
       }),
     });
@@ -61,7 +56,6 @@ export default function PanelTasksPage() {
       setAdScript("");
       setCooldownSec("0");
       setDailyLimit("");
-      setDynamicPricing(false);
       setMarginPercent("");
       loadTasks(initData);
     }
@@ -97,8 +91,6 @@ export default function PanelTasksPage() {
           setCooldownSec={setCooldownSec}
           dailyLimit={dailyLimit}
           setDailyLimit={setDailyLimit}
-          dynamicPricing={dynamicPricing}
-          setDynamicPricing={setDynamicPricing}
           marginPercent={marginPercent}
           setMarginPercent={setMarginPercent}
           creating={creating}
@@ -116,7 +108,7 @@ function TasksInner(props: any) {
     initData, tasks, loadTasks, name, setName, reward, setReward,
     adNetwork, setAdNetwork, adScript, setAdScript, zoneId, setZoneId,
     cooldownSec, setCooldownSec, dailyLimit, setDailyLimit,
-    dynamicPricing, setDynamicPricing, marginPercent, setMarginPercent,
+    marginPercent, setMarginPercent,
     creating, createTask, toggleTask, router,
   } = props;
 
@@ -157,20 +149,21 @@ function TasksInner(props: any) {
           </>
         )}
 
-        {adNetwork === "monetag" && (
-          <label className="flex items-center gap-2 text-sm text-charcoal bg-ivory rounded-xl px-3 py-2">
-            <input type="checkbox" checked={dynamicPricing} onChange={(e: any) => setDynamicPricing(e.target.checked)} />
-            Tự động tính giá theo CPM (cập nhật mỗi 5 phút)
-          </label>
-        )}
+        <input value={reward} onChange={(e: any) => setReward(e.target.value)} type="number"
+          placeholder={adNetwork === "monetag" ? "Số tiền ước tính hiển thị cho user" : "Số tiền nhận được"}
+          className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
 
-        {dynamicPricing ? (
-          <input value={marginPercent} onChange={(e: any) => setMarginPercent(e.target.value)} type="number"
-            placeholder="Tỷ lệ trả user (%) — để trống dùng mặc định hệ thống"
-            className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
-        ) : (
-          <input value={reward} onChange={(e: any) => setReward(e.target.value)} type="number" placeholder="Số tiền nhận được"
-            className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+        {adNetwork === "monetag" && (
+          <>
+            <p className="text-xs text-gray-400 bg-ivory rounded-xl px-3 py-2">
+              Số tiền thực tế được cộng tính ngay theo giá trị thật của từng lượt xem
+              (estimated_price Monetag gửi kèm postback) × tỷ lệ % bên dưới — số ở ô trên
+              chỉ là ước tính hiển thị cho user, không phải số tiền chính xác sẽ trả.
+            </p>
+            <input value={marginPercent} onChange={(e: any) => setMarginPercent(e.target.value)} type="number"
+              placeholder="Tỷ lệ trả user (%) — để trống dùng mặc định hệ thống"
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm" />
+          </>
         )}
 
         <div className="flex gap-2">
@@ -192,14 +185,8 @@ function TasksInner(props: any) {
               <p className="font-medium text-charcoal">{t.name}</p>
               <p className="text-xs text-gray-400">
                 +{t.reward.toLocaleString("vi-VN")}đ · {t.adNetwork}
-                {t.dynamicPricing && " · CPM tự động"}
+                {t.adNetwork === "monetag" && t.marginPercent != null && ` · margin ${t.marginPercent}%`}
               </p>
-              {t.dynamicPricing && (
-                <p className="text-[11px] text-gray-400">
-                  {t.lastCpmUsd != null ? `CPM $${t.lastCpmUsd.toFixed(2)}` : "Chưa đồng bộ CPM"}
-                  {t.lastCpmSyncAt && ` · ${new Date(t.lastCpmSyncAt).toLocaleTimeString("vi-VN")}`}
-                </p>
-              )}
             </div>
             <button
               onClick={() => toggleTask(initData, t.id)}

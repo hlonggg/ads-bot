@@ -31,7 +31,7 @@ Hệ thống chỉ cộng tiền khi **`reward_event_type=valued`** (Monetag xá
 tiền) **và** `event_type=impression` (không cộng khi chỉ là `click`, tránh cộng đúp cho 1 lượt xem).
 Nếu `reward_event_type=not_valued` (bị lọc do spam/gian lận), hệ thống tự đánh dấu REJECTED — không cộng.
 
-## Cơ chế CPM tự động (Monetag)
+## Cơ chế tính thưởng Monetag (theo giá trị thực từng lượt xem)
 
 - **Monetag dùng 1 main zone duy nhất cho toàn app** (đúng theo tài liệu chính thức — sub-zone chỉ
   dùng nội bộ, không cấu hình riêng cho từng nhiệm vụ). Cấu hình `Monetag Main Zone ID` và
@@ -41,26 +41,28 @@ Nếu `reward_event_type=not_valued` (bị lọc do spam/gian lận), hệ thố
   lần là lỗi phổ biến theo doc Monetag). Khi user bấm "Bắt đầu", client gọi
   `show_<zoneId>({ ymid: requestId })`, `requestId` chính là ID nội bộ để nối lại đúng
   `TaskCompletion` khi postback về.
-- Nhiệm vụ bật "CPM tự động" trong panel sẽ **không dùng số tiền cố định** — mỗi 5 phút, cron
-  gọi `GET /api/cron/sync-cpm?secret=CRON_SECRET`, lấy CPM hiện tại của zone chung đó từ Monetag,
-  rồi tính lại `reward` theo công thức:
+- **Không dùng CPM trung bình theo zone nữa** (đã bỏ `lib/monetagCpm.ts` + cron `sync-cpm`) — vì
+  Monetag không cấp API key công khai để lấy số này, và ngay cả khi lấy được thì CPM trung bình
+  cập nhật trễ hàng giờ, không phản ánh đúng giá trị của từng lượt xem cụ thể, dễ gây lệch/lỗ.
+- Thay vào đó, mỗi khi Monetag gọi postback xác nhận (`event_type=impression` &
+  `reward_event_type=valued`), route `/api/postback/monetag` tính thưởng **ngay lập tức** từ
+  `estimated_price` — giá trị doanh thu ước tính của ĐÚNG lượt xem đó, Monetag gửi kèm sẵn trong
+  postback, không cần API/cron nào cả:
   ```
-  reward (VND/view) = (cpmUsd / 1000) * tỷ_giá_USD_VND * (marginPercent / 100)
+  reward (VND) = estimated_price (USD) * tỷ_giá_USD_VND * (marginPercent / 100)
   ```
-  Ví dụ CPM $1/1000 view, margin 50% → user nhận 50% doanh thu của 1 view đó.
+  `marginPercent` lấy theo từng Task (`task.marginPercent`), nếu để trống thì dùng
+  `Setting("defaultMarginPercent")`.
+  Ví dụ lượt xem đó `estimated_price=0.002`, tỷ giá 26.000đ, margin 40% →
+  `0.002 * 26000 * 0.4 ≈ 21đ` cộng ngay cho user.
+- Số `reward` nhập khi tạo Task (Monetag) chỉ là **số ước tính hiển thị** trong danh sách nhiệm vụ
+  cho user tham khảo — số tiền thực tế cộng vào ví luôn được tính lại theo `estimated_price` thật
+  ở bước trên.
 - Tỷ giá USD→VND lấy tự động từ API tỷ giá công khai (cache 1h), có fallback thủ công ở
   `Setting("usdVndRateManual")` nếu API tỷ giá lỗi.
-- **Bắt buộc phải điền phần TODO trong `lib/monetagCpm.ts`** trước khi dùng thật — Monetag không
-  có tài liệu Statistics API công khai mà tôi verify được, bạn cần lấy đúng URL báo cáo từ chính
-  tài khoản publisher của bạn (Statistics → Export → API), tôi chỉ để sẵn khung gọi + parse.
-- **Thiết lập cron trên Railway:** New Service → chọn "Cron Job" (nếu bản Railway bạn dùng có),
-  command đơn giản nhất là `curl` gọi endpoint mỗi 5 phút:
-  `*/5 * * * * curl -s "https://<APP_URL>/api/cron/sync-cpm?secret=$CRON_SECRET"`
-  Nếu không có Cron Job service, dùng dịch vụ ngoài miễn phí như cron-job.org trỏ vào URL trên.
-- Lưu ý: **Monetag chỉ cập nhật statistics theo giờ**, nên dù cron chạy mỗi 5 phút, giá trị CPM
-  có thể giữ nguyên qua nhiều lần gọi — đúng bản chất dữ liệu, không phải lỗi hệ thống.
-- Với các nhiệm vụ **không phải Monetag** (Adsterra/khác), form tạo nhiệm vụ vẫn cho dán script +
-  Zone ID riêng, vì các network đó không dùng chung SDK `show_XXX()` này.
+- Với các nhiệm vụ **không phải Monetag** (Adsterra/khác), `reward` là số tiền cố định thật, được
+  snapshot lúc claim và cộng nguyên số đó — các network này không gửi `estimated_price` qua
+  postback này nên không áp dụng công thức trên.
 
 ## Việc cần làm tiếp (chưa xong 100%, cần bạn hoàn thiện theo network thật)
 
@@ -83,6 +85,8 @@ Nếu `reward_event_type=not_valued` (bị lọc do spam/gian lận), hệ thố
 2. Railway → New Project → Deploy from GitHub → chọn repo.
 3. Add plugin PostgreSQL (Railway tự set `DATABASE_URL`).
 4. Vào Variables, thêm theo `.env.example` (BOT_TOKEN, APP_URL, ADMIN_IDS, POSTBACK_SECRET).
-5. Build command mặc định `npm run build` (đã gồm `prisma generate && prisma db push`).
+5. Build command mặc định `npm run build` (`prisma generate && next build` — không chạy
+   `prisma db push` ở đây vì mạng nội bộ Railway `*.railway.internal` chỉ khả dụng ở runtime,
+   không khả dụng lúc build; `prisma db push` được chuyển sang chạy trong `npm start`).
 6. Sau khi deploy xong, gọi 1 lần `GET https://<APP_URL>/api/telegram/webhook` để đăng ký webhook.
 7. Vào Telegram, `/start` bot, admin thì `/panel`.

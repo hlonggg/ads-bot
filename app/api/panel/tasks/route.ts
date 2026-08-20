@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const admin = verifyAdminInitData(body.initData);
   if (!admin) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { name, reward, adScript, adNetwork, zoneId, cooldownSec, dailyLimit, dynamicPricing, marginPercent } = body;
+  const { name, reward, adScript, adNetwork, zoneId, cooldownSec, dailyLimit, marginPercent } = body;
   const network = adNetwork || "custom";
 
   if (!name) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
@@ -25,21 +25,24 @@ export async function POST(req: NextRequest) {
   if (network !== "monetag" && !adScript) {
     return NextResponse.json({ error: "adscript_required_for_non_monetag" }, { status: 400 });
   }
-  if (!dynamicPricing && !reward) {
-    return NextResponse.json({ error: "reward_required_when_not_dynamic" }, { status: 400 });
+  if (!reward) {
+    return NextResponse.json({ error: "reward_required" }, { status: 400 });
   }
 
   const task = await prisma.task.create({
     data: {
       name,
-      reward: dynamicPricing ? 0 : Number(reward), // 0 until first cron sync fills it in
+      // For "monetag" tasks this is only an ESTIMATE shown in the task list — the
+      // real amount credited is computed per-event from estimated_price at postback
+      // time (see /api/postback/monetag). For other networks this is the real,
+      // fixed reward actually credited.
+      reward: Number(reward),
       adScript: network === "monetag" ? "" : adScript,
       adNetwork: network,
       zoneId: network === "monetag" ? null : zoneId || null,
       cooldownSec: Number(cooldownSec) || 0,
       dailyLimit: dailyLimit ? Number(dailyLimit) : null,
-      dynamicPricing: !!dynamicPricing,
-      marginPercent: marginPercent ? Number(marginPercent) : null,
+      marginPercent: network === "monetag" && marginPercent ? Number(marginPercent) : null,
     },
   });
 

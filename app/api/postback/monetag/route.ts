@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { fetchUsdToVndRate } from "@/lib/exchangeRate";
 
 /**
  * Dán URL này vào "Your backend URL" trong Monetag SSP → Postbacks (mỗi zone
@@ -10,11 +11,16 @@ import { prisma } from "@/lib/prisma";
  * Monetag sẽ tự thay {ymid}, {event_type}... bằng giá trị thật khi gọi.
  * ymid = requestId chúng ta tạo lúc claim và truyền vào show_XXX({ ymid }).
  *
- * Theo Macro Reference chính thức:
+ * Theo Macro Reference chính thức (docs.monetag.com/docs/postbacks/macroses):
  *   reward_event_type = "valued"      -> sự kiện ĐÃ được tính tiền, được thưởng
  *   reward_event_type = "not_valued"  -> bị lọc (spam/gian lận/fallback), KHÔNG thưởng
- * Chỉ cộng tiền khi reward_event_type === "valued" — bỏ qua điều kiện này là lỗ hổng
- * cho phép cộng tiền cho lượt xem không hợp lệ.
+ *   estimated_price    -> doanh thu ước tính của ĐÚNG lượt xem này, tính bằng USD
+ *
+ * Thưởng cho user (task Monetag) được tính NGAY LÚC NÀY, từ estimated_price của
+ * chính lượt xem này — không dùng CPM trung bình cache trước đó (số CPM trung bình
+ * của Monetag cập nhật trễ hàng giờ và không phản ánh đúng giá trị lượt xem cụ thể,
+ * dễ gây lệch/lỗ). Task không phải Monetag (adsterra/custom) vẫn dùng reward cố định
+ * đã snapshot lúc claim, vì các network đó không gửi estimated_price qua postback này.
  */
 export async function GET(req: NextRequest) {
   const ymid = req.nextUrl.searchParams.get("ymid");
@@ -27,7 +33,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  const completion = await prisma.taskCompletion.findUnique({ where: { requestId: ymid } });
+  const completion = await prisma.taskCompletion.findUnique({
+    where: { requestId: ymid },
+    include: { task: true },
+  });
   if (!completion) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   if (completion.status !== "PENDING") {
     // already processed — respond 200 so Monetag doesn't retry forever (idempotent per ymid)
@@ -39,26 +48,42 @@ export async function GET(req: NextRequest) {
   // Rewarded Interstitial: the "impression" event is what completes the ad view.
   // A "click" postback is a separate, secondary event — crediting on it too would
   // double-pay for a single ad view.
-  const isValidRewardEvent = eventType === "impression" && rewardEventType === "yes";
+  const isValidRewardEvent = eventType === "impression" && rewardEventType === "valued";
 
   if (!isValidRewardEvent) {
     await prisma.taskCompletion.update({
       where: { id: completion.id },
       data: { status: "REJECTED" },
     });
-    return NextResponse.json({ ok: true, rewarded: false, reason: "no" });
+    return NextResponse.json({ ok: true, rewarded: false, reason: "not_valued_or_wrong_event" });
+  }
+
+  // --- Compute the real, per-event reward from estimated_price ---
+  let finalReward = completion.reward; // fallback: the snapshot taken at claim time
+  const priceUsd = Number(estimatedPrice);
+
+  if (completion.task.adNetwork === "monetag" && estimatedPrice && !Number.isNaN(priceUsd) && priceUsd > 0) {
+    const marginPercent = completion.task.marginPercent ?? Number(
+      (await prisma.setting.findUnique({ where: { key: "defaultMarginPercent" } }))?.value ?? "50"
+    );
+    const manualRateFallback = Number(
+      (await prisma.setting.findUnique({ where: { key: "usdVndRateManual" } }))?.value ?? "0"
+    ) || undefined;
+    const usdToVndRate = await fetchUsdToVndRate(manualRateFallback);
+
+    finalReward = Math.round(priceUsd * usdToVndRate * (marginPercent / 100));
   }
 
   await prisma.$transaction([
     prisma.taskCompletion.update({
       where: { id: completion.id },
-      data: { status: "CONFIRMED", confirmedAt: new Date() },
+      data: { status: "CONFIRMED", confirmedAt: new Date(), reward: finalReward },
     }),
     prisma.user.update({
       where: { id: completion.userId },
-      data: { balance: { increment: completion.reward } },
+      data: { balance: { increment: finalReward } },
     }),
   ]);
 
-  return NextResponse.json({ ok: true, rewarded: true });
+  return NextResponse.json({ ok: true, rewarded: true, reward: finalReward });
 }

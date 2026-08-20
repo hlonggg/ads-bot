@@ -21,7 +21,6 @@ const ALLOWED_KEYS = [
   "minWithdraw",
   "groupLink",
   "supportUrl",
-  "monetagApiKey",
   "monetagZoneId",
   "monetagZoneScript",
   "defaultMarginPercent",

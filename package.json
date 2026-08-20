@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-  "dev": "next dev",
-  "build": "prisma generate && next build",
-  "start": "prisma db push && next start",
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "prisma db push && next start -p ${PORT:-3000}",
     "postinstall": "prisma generate"
   },
   "dependencies": {

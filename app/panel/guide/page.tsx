@@ -13,8 +13,7 @@ const FIELDS = [
 const CPM_FIELDS = [
   { key: "monetagZoneId", label: "Monetag Main Zone ID (bắt buộc)", type: "text" },
   { key: "monetagZoneScript", label: "Script embed Monetag (dán nguyên từ dashboard)", type: "textarea" },
-  { key: "monetagApiKey", label: "Monetag API Key (cho đồng bộ CPM)", type: "text" },
-  { key: "defaultMarginPercent", label: "Tỷ lệ trả user mặc định (%)", type: "number" },
+  { key: "defaultMarginPercent", label: "Tỷ lệ trả user mặc định (%) — áp dụng theo từng lượt xem", type: "number" },
   { key: "usdVndRateManual", label: "Tỷ giá USD→VND dự phòng (khi API tỷ giá lỗi)", type: "number" },
 ];
 
@@ -87,7 +86,7 @@ function Inner({ initData, values, setValues, load, save, saving, router }: any)
         ))}
       </div>
 
-      <p className="text-sm font-semibold text-charcoal mt-6 mb-3">CPM tự động (Monetag)</p>
+      <p className="text-sm font-semibold text-charcoal mt-6 mb-3">Monetag (thưởng theo giá trị thực từng lượt xem)</p>
       <div className="flex flex-col gap-4">
         {CPM_FIELDS.map((f) => (
           <div key={f.key} className="card p-4">

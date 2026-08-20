@@ -46,18 +46,20 @@ model Task {
   cooldownSec  Int      @default(0)              // per-user cooldown between repeat completions of this task (0 = one-time)
   dailyLimit   Int?                              // optional cap on completions/day per user, null = unlimited
 
-  // --- dynamic CPM-based pricing (Monetag) ---
-  dynamicPricing Boolean  @default(false)        // if true, `reward` is auto-recalculated by the CPM sync cron instead of set manually
-  marginPercent  Int?                            // % of CPM revenue paid to user for this task (e.g. 50). Falls back to Setting("defaultMarginPercent") if null
-  lastCpmUsd     Float?                          // last CPM (USD per 1000 views) pulled from Monetag, for display/debugging
-  lastCpmSyncAt  DateTime?
+  // --- per-event pricing (Monetag only) ---
+  // For adNetwork = "monetag", the actual reward is computed at postback time from
+  // that event's real `estimated_price` (see /api/postback/monetag), not from `reward`
+  // above — `reward` is just an estimated amount shown to the user in the task list.
+  // marginPercent = % of estimated_price paid to the user. Falls back to
+  // Setting("defaultMarginPercent") if null.
+  marginPercent  Int?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   completions  TaskCompletion[]
 
-  @@index([dynamicPricing, adNetwork])
+  @@index([adNetwork])
 }
 
 // ---------------------------------------------------------------------------
