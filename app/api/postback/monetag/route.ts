@@ -39,14 +39,14 @@ export async function GET(req: NextRequest) {
   // Rewarded Interstitial: the "impression" event is what completes the ad view.
   // A "click" postback is a separate, secondary event — crediting on it too would
   // double-pay for a single ad view.
-  const isValidRewardEvent = eventType === "impression" && rewardEventType === "valued";
+  const isValidRewardEvent = eventType === "impression" && rewardEventType === "yes";
 
   if (!isValidRewardEvent) {
     await prisma.taskCompletion.update({
       where: { id: completion.id },
       data: { status: "REJECTED" },
     });
-    return NextResponse.json({ ok: true, rewarded: false, reason: "not_valued_or_wrong_event" });
+    return NextResponse.json({ ok: true, rewarded: false, reason: "no" });
   }
 
   await prisma.$transaction([
